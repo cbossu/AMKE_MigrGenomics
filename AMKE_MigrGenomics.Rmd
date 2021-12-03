@@ -1,0 +1,164 @@
+---
+title: "AMKE Migration Genomics"
+author: "Christen Bossu"
+date: "12/3/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load packages needed for analyses
+```{r}
+#install.packages("R2admb")
+#install.packages("glmmADMB", repos=c("http://glmmadmb.r-forge.r-project.org/repos",getOption("repos")),type="source")
+
+#this use a onetime only deal to get ggbiplot
+#library(devtools)
+#devtools::install_github("vqv/ggbiplot")
+
+library(pastecs)
+library(car)
+library(lme4)
+library(MuMIn)
+library(RLRsim)
+library(lsmeans)
+library(pbkrtest)
+library(glmmADMB)
+library(ggplot2)
+library(MASS)
+library(AICcmodavg)
+library(tidyverse)
+library(ggplot2)
+library(plyr)
+library(dplyr)
+library(gtools)
+library(ggbiplot)
+library(Gifi)
+library(effects)
+library(plotly)
+library(EnvStats)
+library(tidyverse)
+```
+
+Read in data file that includes genotypes of candidate genes genotyped by Fluidigm. Candidate genes were chosen with a relaxed threshhold in an FST outlier analysis between resident and migrant/partial migrant populations
+```{r}
+alldata5<-read.delim("data/AMKE.meta_CandGenotyping.Breeding_MigrIDonly.csv",sep=",")
+```
+
+Run an ordinal PCA on genotype data to see where the most variation lies and which candidate genes covary together
+
+```{r,Fig. Loading plot of candidate genes}
+fitord <- princals(alldata5[,c("amke_CG10_top1_A","amke_CG11_phlpp1_C","amke_CG12_peak1_T","amke_CG14_cry1_C","amke_CG3_nacc2_G","amke_CG4_cpne4_C","amke_CG5_scn5a_C","amke_CG6_lmbr1_C","amke_CG8_npas2_T")], ndim = 4, ordinal = TRUE, missing = 'a', normobj.z = TRUE)  ## ordinal PCA
+
+fitord
+
+summary(fitord) %>% write.table('AMKE.90th_CG.table.Loadings.raw012_fix.nomybbp1a.1Npas2.breed_onlyID.txt',row.names=F,quote=F,sep="\t")
+pdf(file="plots/LoadingPlot.fitord.CG.raw012_fix.1npas2.breed_justID.pdf",useDingbats = F)
+par(mfrow=c(1,1))
+plot(fitord, "loadplot", main = "Loadings Plot ABC Data")  ## aspect ratio = 1
+dev.off()
+
+plot(fitord, "screeplot")
+
+alldata3<-read.csv(file="data/AMKE.meta_CandGenotyping.Breeding_MigrIDonly.csv")
+```
+
+Subset Breeding season data to look at association with breeding latitude. 
+
+Note, that we first looked at breeding locations in the East and West, however we only had a migration station in the West with enough individuals to look a time series across the autumn migration, therefore we limited our focus to the Western geneic cluster identified in the Ruegg et al. 2021 American Kestrel genoscape paper.
+
+```{r}
+bbdata<- subset(alldata3, phaseFAC == "Nestling" | phaseFAC == "Breeding")
+str(bbdata)
+bbdata1<-subset(bbdata, phaseFAC != "Breeding")
+bbdata2<-subset(bbdata, phaseFAC != "Nestling")
+
+#is there a sample bias in phaseFAC*flyway2 sampling? Yes, but keep combined- they were collected during the breeding season
+hist(bbdata$latitude)
+latmod<-lm(latitude~phaseFAC*Genetic_Group2, data = bbdata)
+	summary(latmod)
+	Anova(latmod)
+plot(allEffects(latmod))
+lsmeans(latmod, pairwise ~ Genetic_Group2:phaseFAC)
+bbdata %>% group_by(Pop) %>% distinct(Pop)
+
+```
+Does relationship between D1 and D2 group by flyway
+```{r}
+ggplot(data = bbdata, aes(D1, D2, color = latitude, shape = Genetic_Group2, size = 2)) + 
+  geom_point( )+
+  scale_colour_gradientn(colours = terrain.colors(10))+
+  stat_ellipse()
+```
+```{r}
+bbdata1 %>% 
+  filter(flyway=="west") %>% 
+  ggplot(aes(D1,wc2.0_bio_30s_04, color = latitude, shape = flyway2, size = 2)) + 
+  geom_point( )+
+  scale_colour_gradientn(colours = terrain.colors(10))+
+  stat_ellipse()
+
+```
+Does flyway and latitude predict D1? YES  Note adults and nestlings
+
+```{r}
+mod1<-lm(D1 ~ latitude, data=bbdata)
+summary(mod1)
+mod1<-lm(D1 ~ latitude+Genetic_Group2, data=bbdata)
+summary(mod1)
+```
+This pattern is driven by the east. So limit to the western genetic cluster
+
+Test D1 and latitude based on genetic group:
+```{r}
+west<-bbdata %>% filter(Genetic_Group2=="west")
+modw<-lm(D1 ~ latitude, data=west)
+summary(modw)
+```
+The pattern of associaiton of D1 and latitude is lost.
+
+Plot the association between breeding latitude and PC1 (Dimension 1 found above). Contains TOP1, PEAK1, PHLPP1, and CPNE4 loading strongly.
+
+```{r}
+library(ggpubr)
+
+d_lat<-bbdata %>% 
+  filter(Genetic_Group2=="west") %>% 
+  ggplot(aes(x = latitude, y = D1,color=Genetic_Group2)) +
+  geom_point() + 
+  geom_smooth(method = "lm")+ theme_bw()+ theme(axis.text.x=element_text(angle=90,hjust=1)) +theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + xlab("Latitude") + ylab("D1")+ labs(color = "Genetic Group")+theme(aspect.ratio=1)
+
+d2_lat<-bbdata %>% 
+  filter(Genetic_Group2=="west") %>% 
+  ggplot(aes(x = latitude, y = D2,color=Genetic_Group2)) +
+  geom_point() + 
+  geom_smooth(method = "lm")+ theme_bw()+ theme(axis.text.x=element_text(angle=90,hjust=1)) +theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + xlab("Latitude") + ylab("D2")+ labs(color = "Genetic Group")+theme(aspect.ratio=1)
+
+
+d3_lat<-bbdata %>% 
+  filter(Genetic_Group2=="west") %>% 
+  ggplot(aes(x = latitude, y = D3,color=Genetic_Group2)) +
+  geom_point() + 
+  geom_smooth(method = "lm")+ theme_bw()+ theme(axis.text.x=element_text(angle=90,hjust=1)) +theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + xlab("Latitude") + ylab("D3")+ labs(color = "Genetic Group")+theme(aspect.ratio=1)
+
+pdf('plots/D1.1npas2_Latitude.Gen_Group.West.breeding_nestling.pdf',useDingbats = F,width=12,height=8)
+ggarrange(d_lat,
+          ncol = 2, nrow = 1)
+dev.off()
+ggarrange(d_lat,
+          ncol = 2, nrow = 1)
+```
+
+Investigate relationship with other PC axes
+```{r}
+ggarrange(d2_lat,
+          ncol = 2, nrow = 1)
+```
+
+```{r}
+ggarrange(d3_lat,
+          ncol = 2, nrow = 1)
+```
+
