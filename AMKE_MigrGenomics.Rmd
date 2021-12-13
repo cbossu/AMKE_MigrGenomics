@@ -808,8 +808,6 @@ ggarrange(t2,p2,c2,ph2, common.legend = TRUE,
 
 ##Combine popID and candidate genes for ID migratory birds
 ```{r}
-setwd("~/Dropbox/BGP/AMKE/Fluidigm_genotypes_results/Genotype_results/Sara/Christen_ReScore/")
-
 ##Plate11
 setwd("~/Dropbox/BGP/AMKE/Fluidigm_genotypes_results/Genotype_results/")
 pt11_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl11.panel4.allsites.CBscored.csv") %>% 
