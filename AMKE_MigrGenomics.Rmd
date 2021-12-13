@@ -68,7 +68,7 @@ fitord
 
 Create table and plot of fitord.
 ```{r}
-summary(fitord) %>% write.table('AMKE.90th_CG.table.Loadings.raw012_fix.nomybbp1a.1Npas2.breed_onlyID.txt',row.names=F,quote=F,sep="\t")
+summary(fitord) %>% write.table('results/AMKE.90th_CG.table.Loadings.raw012_fix.nomybbp1a.1Npas2.breed_onlyID.txt',row.names=F,quote=F,sep="\t")
 pdf(file="plots/LoadingPlot.fitord.CG.raw012_fix.1npas2.breed_justID.pdf",useDingbats = F)
 par(mfrow=c(1,1))
 plot(fitord, "loadplot", main = "Loadings Plot ABC Data")  ## aspect ratio = 1
@@ -292,6 +292,7 @@ map <- ggplot() +
   geom_sf(data = states_cropped, fill = NA) +
   #geom_point(data = test, aes(meanLong, meanLat,color=meanD1), size = 2) + #scale_colour_manual(values=my.colors) +
   theme_bw()+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+map
 ```
 
 Add projection and read in the American Kestrel shapefile
@@ -311,7 +312,7 @@ cluster_colors <-  c(
 ```
 Then genoscape raster
 ```{r}
-genoscape_brick<-readRDS("~/Dropbox/BGP/AMKE/maps/AMKE.structureQ.K5breeding.551ind.186SNP.final.entire.stack.rds")
+genoscape_brick<-readRDS("data/AMKE.structureQ.K5breeding.551ind.186SNP.final.entire.stack.rds")
 ```
 This will squash the raster brick down to a single
 RGBA (i.e., four channels, red, green, blue and alpha) raster brick.
@@ -535,12 +536,12 @@ summary(mod1a)
 
 Plot timing of migration for 2016 and 2017, separated by sex
 ```{r}
-pdf('plots/Amke.D1_JulianDaySampled.ID_only.raw012fix.bysex.2017.1npas2.pdf',useDingbats = F)
+#pdf('plots/Amke.D1_JulianDaySampled.ID_only.raw012fix.bysex.1npas2.pdf',useDingbats = F)
 sexP<-ggplot(data = mgdata3, mapping = aes(x = julianDaySampled, y = D1,color=sexBird)) +  scale_color_manual(values = my.colors)+
   geom_point() + 
   geom_smooth(method = "lm") +theme_bw() +theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + xlab("Julian Day Sampled") + ylab("D1") + labs(color = "Sex") +theme(aspect.ratio = 1)
 sexP
-dev.off()
+#dev.off()
 
 mgdata2 %>% group_by(yearSampled) %>% tally()
 ##mgdata %>% dplyr::select("SampleNo") %>% write.table("AMKE.ID_migrBirds165_only.txt",row.names = F,quote=F,sep="\t")
@@ -549,7 +550,7 @@ my.colors<-c("#333333","#984ea3", "#ff7f00","#33FF00", "#ffff33","#377eb8","#e41
 
 pdf('plots/FigSI3.D1_byLat_bySex.pdf')
 ggarrange(d_lat,sexP,
-          ncol = 1, nrow = 2)
+          ncol = 2, nrow = 1)
 dev.off()
 
 ```
@@ -774,11 +775,9 @@ fit1<-lm(phlpp1_allele_freq ~ midpoint, data = test2)
 summary(fit1)
 fit2 <- lm(phlpp1_allele_freq~poly(midpoint,2,raw=TRUE),data=test2)
 summary(fit2)
-fit3 <- lm(phlpp1_allele_freq~poly(midpoint,3,raw=TRUE),data=test2)
-summary(fit3)
 
-anova(fit1,fit2,fit3)
-lrtest(fit1, fit2,fit3)
+anova(fit1,fit2)
+lrtest(fit1, fit2)
 
 #pdf("Phlpp1_allele_freq.byweek.migrating_birds.IDonly.raw012fix.square.1.pdf",useDingbats=F)
 #top1_peak1 %>% summarise(sumtally=sum(peak1_tally))
@@ -807,98 +806,11 @@ ggarrange(t2,p2,c2,ph2, common.legend = TRUE,
 
 
 ##Combine popID and candidate genes for ID migratory birds
+````{r}
+all<-read_delim("data/AMKE.IDall.final_panel4-5.186SNP.rubias_fix.rm_miss.txt",delim="\t")
+```
 ```{r}
-##Plate11
-setwd("~/Dropbox/BGP/AMKE/Fluidigm_genotypes_results/Genotype_results/")
-pt11_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl11.panel4.allsites.CBscored.csv") %>% 
-  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
-  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
-  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control")  %>% spread(Assay_Name, Genotype_Converted) %>% filter(Sample_Name %in% mgdata$SampleNo)
-
-pt12_p4g <- read_csv("Sara/Christen_ReScore/AMKE.Plate12_B1_FinalPanel4.CBscored.allsites.csv") %>% 
-  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
-  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
-  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% filter(Sample_Name!="18N00358")  %>% spread(Assay_Name, Genotype_Converted) %>% filter(Sample_Name %in% mgdata$SampleNo) #%>% arrange(Sample_Name) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
-
-pt13_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl13.panel4.CBscored.allsites.csv") %>% 
-  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
-  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
-  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Negative") %>% filter(Sample_Name != "Control") %>% arrange(Sample_Name) %>% spread(Assay_Name, Genotype_Converted) %>%  filter(Sample_Name %in% mgdata$SampleNo) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
-
-##Plate 14
-pt14_p4g <- read_csv("Sara/Christen_ReScore/AMKE.Ppl14.panel4.CBscored.allsites.csv") %>% 
-  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
-  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
-  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% filter(Sample_Name!="18N00596") %>% spread(Assay_Name, Genotype_Converted) %>% filter(Sample_Name %in% mgdata$SampleNo)  #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
-
-pt14_p4g_one <- read_csv("Sara/Christen_ReScore/AMKE.Ppl14.panel4.CBscored.allsites.csv") %>% 
-  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
-  select(Assay_Name, Sample_Name, Genotype_Converted,ID) %>% 
-  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% filter(Sample_Name=="18N00596") %>% spread(Assay_Name, Genotype_Converted) %>% filter(Sample_Name %in% mgdata$SampleNo) #%>% write.table('AMKE.Plate14.dup_ind.long.csv',quote=F,sep=",",row.names=F) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
-
-pt14_p4g_dup<-read_csv("Sara/Christen_ReScore/AMKE.Plate14.dup_ind.long.18N00596.csv") %>% select(Assay_Name, Sample_Name, Genotype_Converted) %>% spread(Assay_Name, Genotype_Converted)  %>% filter(Sample_Name %in% mgdata$SampleNo) 
-
-
-##Plate 15
-pt15_p4g <- read_csv("Sara/Christen_ReScore/AMKE.Pl15_M1_FinalPanel4.CBscored.allsites.csv") %>% 
-  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
-  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
-  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% spread(Assay_Name, Genotype_Converted)  %>%  filter(Sample_Name %in% mgdata$SampleNo) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
-
-##Plate 16
-pt16_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl16.finalpanel4.CBscored.allsites.csv") %>% 
-  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
-  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
-  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% filter(Sample_Name!="16N2260") %>% filter(Sample_Name!="16N2259") %>% filter(Sample_Name!="18N00043") %>% filter(Sample_Name!="18N00562") %>% spread(Assay_Name, Genotype_Converted) %>%  filter(Sample_Name %in% mgdata$SampleNo) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
-
-##Plate 17
-pt17_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl17.panel4.allsites.csv") %>% 
-  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
-  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
-  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% spread(Assay_Name, Genotype_Converted) %>%  filter(Sample_Name %in% mgdata$SampleNo) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
-
-##Plate 18
-pt18_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl18.panel4.allsites.CBscored.csv") %>% 
-  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
-  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
-  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% spread(Assay_Name, Genotype_Converted)  %>%  filter(Sample_Name %in% mgdata$SampleNo) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
-
-##Plate 19
-pt19_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl19.panel4.allsites.CBscored.csv") %>% 
-  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
-  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
-  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% filter(Sample_Name!="17N02694") %>% spread(Assay_Name, Genotype_Converted)   %>%  filter(Sample_Name %in% mgdata$SampleNo) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
-
-##Plate 20
-pt20_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl20.panel4.allsites.CBscored.csv") %>% 
-  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
-  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
-  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% filter(Sample_Name!="18N00629") %>% filter(Sample_Name!="18N00455") %>% spread(Assay_Name, Genotype_Converted)   %>%  filter(Sample_Name %in% mgdata$SampleNo) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
-
-all<-rbind(pt11_p4g,pt12_p4g,pt13_p4g,pt14_p4g,pt14_p4g_dup, pt15_p4g,pt16_p4g,pt17_p4g,pt18_p4g, pt19_p4g,pt20_p4g) %>% arrange(Sample_Name) %>% rename(Sample=Sample_Name) %>% filter(Sample %in% mgdata$SampleNo)
-
-p5_51<-read_csv("ID_popID_finalPanel5/AMKE.Plate51.FinalPanel5.CBscored.1802138101.callmap.csv") %>% dplyr::select(-rownum)
-p5_53<-read_csv("ID_popID_finalPanel5/AMKE.Plate53.FinalPanel5.CBscored.1802138112.callmap.csv") %>% dplyr::select(-rownum)
-
-ID_p5<-p5_51 %>% full_join(p5_53) 
-
-ID_p4_5<-ID_p5 %>% left_join(all) #%>% mutate(sample_type="mixture",repunit="NA",collection="NA") %>% dplyr::select(sample_type,repunit,collection,Sample,everything()) %>% 
-
-ID_p4_5 %>% full_join(early) %>% arrange(Sample) %>% write.table("ID_popID_finalPanel5/AMKE.IDall.final_panel4-5.csv",row.names = F,quote=F,sep=",")
-
-all<-read_csv("Sara/Christen_ReScore/AMKE.Pl11-20.Panel4only_removesome_checkdup.csv")
-
-early<-read_delim("AMKE_SNPgenotypes_str_format_allSamps_842ind.plt6-8redos.csv",delim=",",col_names = T) %>% rename(Sample=Sample_Name) %>% filter(Sample %in% mgdata$SampleNo)
-
-early %>% write.table("AMKE_SNPgenotypes_str_format_allSamps_ID40.plt6-8redos.csv",row.names = F,quote=F,sep=",")
-
-early<-read_delim("AMKE_SNPgenotypes_str_format_allSamps_ID40.plt6-8redos.csv",delim=",",col_names = T) 
-
-all %>% full_join(early) %>% arrange(Sample) %>% write.table("ID_popID_finalPanel5/AMKE.IDall.FinalPanel4_5.SNPgenotypes.csv",row.names=F,quote=F,sep=",")
-mgdata2<-mgdata %>% rename(indiv=SampleNo) %>% dplyr::select(indiv,Year,Month,Day,State,nearestCity,countryCode,latitude,longitude)
-amke_rub<-read_delim("ID_popID_finalPanel5/AMKE.IDrm_miss.rep_indiv_est.txt",delim="\t")
-amke_rub %>% left_join(mgdata2) %>% write.table("ID_popID_finalPanel5/AMKE.IDrm_miss.rep_indiv_est.meta.txt",row.names = F,quote=F,sep="\t")
-#add e to the data so can combine
+mgdata3<-mgdata2 %>% rename(indiv=SampleNo) %>% dplyr::select(indiv,Year,Month,Day,State,nearestCity,countryCode,latitude,longitude)
 
 amke_rub<-read_delim("data/AMKE.IDrm_miss.rep_indiv_est.meta.txt",delim="\t")
 amke_rub %>% filter(West>0.5) %>% tally()
@@ -906,6 +818,6 @@ amke_rub %>% filter(West>0.5) %>% tally()
 amke_rub %>% filter(East>0.5) %>% tally()
 amke_rub %>% filter(East>0.8) %>% tally()
 amke_rub %>% filter(East>0.5) %>% select(Month,Day)
-all %>% filter(Sample_Name %in% mgdata$SampleNo)
-
+all %>% filter(indiv %in% mgdata2$SampleNo)
+```
 
