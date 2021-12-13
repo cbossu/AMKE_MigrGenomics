@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 #Load packages needed for analyses
-```{r}
+```{r,echo=F}
 #install.packages("R2admb")
 #install.packages("glmmADMB", repos=c("http://glmmadmb.r-forge.r-project.org/repos",getOption("repos")),type="source")
 
@@ -29,6 +29,13 @@ library(glmmADMB)
 library(ggplot2)
 library(MASS)
 library(AICcmodavg)
+library("maps")
+library("rnaturalearth")
+library("rnaturalearthdata")
+library(sf)
+library(raster)
+library(ggspatial)
+library(ggrepel)
 library(tidyverse)
 library(ggplot2)
 library(plyr)
@@ -40,6 +47,10 @@ library(effects)
 library(plotly)
 library(EnvStats)
 library(tidyverse)
+library(gdata)
+library(ggpubr)
+library(tess3r)
+library(genoscapeRtools)
 ```
 
 Read in data file that includes genotypes of candidate genes genotyped by Fluidigm. Candidate genes were chosen with a relaxed threshhold in an FST outlier analysis between resident and migrant/partial migrant populations
@@ -53,7 +64,10 @@ Run an ordinal PCA on genotype data to see where the most variation lies and whi
 fitord <- princals(alldata5[,c("amke_CG10_top1_A","amke_CG11_phlpp1_C","amke_CG12_peak1_T","amke_CG14_cry1_C","amke_CG3_nacc2_G","amke_CG4_cpne4_C","amke_CG5_scn5a_C","amke_CG6_lmbr1_C","amke_CG8_npas2_T")], ndim = 4, ordinal = TRUE, missing = 'a', normobj.z = TRUE)  ## ordinal PCA
 
 fitord
+```
 
+Create table and plot of fitord.
+```{r}
 summary(fitord) %>% write.table('AMKE.90th_CG.table.Loadings.raw012_fix.nomybbp1a.1Npas2.breed_onlyID.txt',row.names=F,quote=F,sep="\t")
 pdf(file="plots/LoadingPlot.fitord.CG.raw012_fix.1npas2.breed_justID.pdf",useDingbats = F)
 par(mfrow=c(1,1))
@@ -80,7 +94,7 @@ hist(bbdata$latitude)
 latmod<-lm(latitude~phaseFAC*Genetic_Group2, data = bbdata)
 	summary(latmod)
 	Anova(latmod)
-plot(allEffects(latmod))
+
 lsmeans(latmod, pairwise ~ Genetic_Group2:phaseFAC)
 bbdata %>% group_by(Pop) %>% distinct(Pop)
 
@@ -161,4 +175,739 @@ ggarrange(d2_lat,
 ggarrange(d3_lat,
           ncol = 2, nrow = 1)
 ```
+
+#Latitude and allele frequency
+Need to filter based on number of individuals in population 
+```{r}
+pop_10<-bbdata %>% filter(State!="NA") %>% group_by(State,Pop) %>% tally() %>% filter(n>10)
+pop_4<-bbdata %>% filter(State!="NA") %>% group_by(Pop,State) %>% tally() %>% filter(n>4)
+
+westpop_10<-bbdata %>% filter(State!="NA") %>% filter(Genetic_Group2=="west") %>% group_by(State,Pop) %>% tally() %>% filter(n>10)
+
+westpop_4<-bbdata %>% filter(State!="NA") %>% filter(Genetic_Group2=="west") %>% group_by(Pop,State) %>% tally() %>% filter(n>4)
+```
+
+
+Sum across top1, peak1,cpne4, and phlpp1 and PC1, divide by number of birds in week and then by 2 for genotypes... ith breeding birds, look at latitude
+```{r}
+summary(bbdata$julianDaySampled)
+sum10<-bbdata %>% 
+  filter(Genetic_Group2=="west") %>% 
+  filter(Pop %in% westpop_10$Pop) %>% group_by(State,Pop) %>% summarise(top1_sum = sum(amke_CG10_top1_A,na.rm=T), peak1_sum=sum(amke_CG12_peak1_T,na.rm=T),cpne4_sum=sum(amke_CG4_cpne4_C,na.rm=T),TSeason=mean(wc2.0_bio_30s_04),meanLat=mean(latitude),meanLong=mean(longitude),meanD1=mean(D1)) 
+
+sum4<-bbdata %>% 
+  filter(Genetic_Group2=="west") %>% 
+  filter(Pop %in% westpop_4$Pop) %>% group_by(Pop,State) %>% summarise(top1_sum = sum(amke_CG10_top1_A,na.rm=T), peak1_sum=sum(amke_CG12_peak1_T,na.rm=T),cpne4_sum=sum(amke_CG4_cpne4_C,na.rm=T),TSeason=mean(wc2.0_bio_30s_04),meanLat=mean(latitude),meanLong=mean(longitude),meanD1=mean(D1)) 
+
+tally_top<-bbdata %>% 
+  filter(Genetic_Group2=="west") %>% 
+  filter(Pop %in% westpop_4$Pop) %>% filter(amke_CG10_top1_A !="NA") %>%  group_by(Pop,State) %>%  tally() %>% rename(top1_tally=n)
+
+tally_peak<-bbdata %>% 
+  filter(Genetic_Group2=="west") %>% 
+  filter(Pop %in% westpop_4$Pop) %>% filter(amke_CG12_peak1_T !="NA") %>%  group_by(Pop,State)  %>%  tally() %>% rename(peak1_tally=n)
+
+tally_phlpp1<-bbdata %>% 
+  filter(Genetic_Group2=="west") %>% 
+  filter(Pop %in% westpop_4$Pop) %>% filter(amke_CG11_phlpp1_C !="NA") %>%  group_by(Pop,State)  %>%  tally() %>% rename(phlpp1_tally=n)
+
+tally_cpne4<-bbdata %>% 
+  filter(Genetic_Group2=="west") %>% 
+  filter(Pop %in% westpop_4$Pop) %>% filter(amke_CG4_cpne4_C!="NA") %>%  group_by(Pop,State)  %>%  tally() %>% rename(cpne4_tally=n)
+
+tally_d1<-bbdata %>% 
+  filter(Genetic_Group2=="west") %>% 
+  filter(Pop %in% westpop_4$Pop) %>% #filter(D1=="NA") %>%  
+  group_by(Pop,State)  %>%  tally() %>% rename(d1_tally=n)
+
+test<-bbdata %>% dplyr::select(SampleNo,Genetic_Group2,State,Pop,amke_CG10_top1_A, amke_CG12_peak1_T,amke_CG4_cpne4_C ,amke_CG11_phlpp1_C,latitude,longitude,D1) %>% 
+  filter(Genetic_Group2=="west") %>% 
+  filter(Pop %in% westpop_4$Pop) %>% group_by(Pop,State) %>% 
+  mutate(top1_allele_freq = amke_CG10_top1_A/2, peak1_allele_freq=amke_CG12_peak1_T/2,cpne4_allele_freq=amke_CG4_cpne4_C/2, phlpp1_allele_freq=amke_CG11_phlpp1_C/2) %>% summarise(meanD1=mean(D1),peak1_AF=mean(peak1_allele_freq,na.rm=T),peak1_AFsd=sd(peak1_allele_freq,na.rm=T),top1_AF=mean(top1_allele_freq,na.rm=T),top1_AFsd=sd(top1_allele_freq,na.rm=T),cpne4_AF=mean(cpne4_allele_freq,na.rm=T),cpne4_AFsd=sd(cpne4_allele_freq,na.rm=T),phlpp1_AF=mean(phlpp1_allele_freq,na.rm=T),phlpp1_AFsd=sd(phlpp1_allele_freq,na.rm=T),meanLat=mean(latitude),meanLong=mean(longitude),D1_sd=sd(D1,na.rm=T)) %>% left_join(tally_top) %>% left_join(tally_peak) %>% left_join(tally_cpne4) %>% left_join(tally_phlpp1) %>% left_join(tally_d1) %>% mutate(top1_AFse=top1_AFsd/sqrt(top1_tally), peak1_AFse=peak1_AFsd/sqrt(peak1_tally),cpne4_AFse=cpne4_AFsd/sqrt(cpne4_tally),phlpp1_AFse=phlpp1_AFsd/sqrt(phlpp1_tally),D1_se=D1_sd/sqrt(d1_tally))
+
+```
+
+```{r}
+pdf("plots/Top1_allele_freq.meanLatitiude.West.min_ind4.pdf",useDingbats=F)
+t<-ggplot(test, aes(meanLat, top1_AF)) + 
+  geom_point(aes(size=top1_tally,colour="red"),alpha=0.8) + 
+  geom_errorbar(aes(ymin=top1_AF-top1_AFse, ymax=top1_AF+top1_AFse), colour="black", width=.1) +
+  #geom_smooth(method = "lm",linetype = "dashed",se=T) + 
+  #geom_text(aes(meanLat,top1_AF),hjust=0, vjust=0) + 
+  theme(axis.text.x=element_text(angle=90,hjust=1))+ theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + 
+  xlab("mean Latitude")+ylab("TOP1 Allele Frequency")+theme(aspect.ratio = 1)
+t
+dev.off()
+t
+mod1t4<-lm( top1_AF~meanLat, data=test)
+summary(mod1t4)
+```
+```{r}
+pdf("plots/D1_meanLatitiude.West.min_ind4.pdf",useDingbats=F)
+d<-ggplot(test, aes(meanLat, meanD1)) + 
+  geom_point(aes(size=d1_tally,colour="red"),alpha=0.8) + 
+  geom_errorbar(aes(ymin=meanD1-D1_se, ymax=meanD1+D1_se), colour="black", width=.1) +
+  #geom_smooth(method = "lm",linetype = "dashed",se=T) + 
+  #geom_text(aes(meanLat,top1_AF),hjust=0, vjust=0) + 
+  theme(axis.text.x=element_text(angle=90,hjust=1))+ theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + 
+  xlab("mean Latitude")+ylab("mean PC1")+theme(aspect.ratio = 1)
+d
+dev.off()
+d
+mod1d4<-lm(meanD1~meanLat, data=test)
+summary(mod1d4)
+```
+
+```{r}
+library(sf)
+##In map form with out line of genetic clusters
+boise <- read.table("~/Dropbox/BGP/AMKE/gradient_forest/AMKE.studysite.GF_PC1-3.txt",header=T) %>% filter(Study_Site=="ID1")
+
+my.colors=c("#66FFFF","#FFCC00","#9933CC","#FFFF00","#FFFF99","#3399FF","#FFCC66","#FF6600","#0066CC","#003399")
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+class(world)
+coastlines <- st_read("~/Dropbox/BGP/genoscape_maps/shapefiles/ne_shapefiles/ne_10m_coastline.shp")
+domain <- c(
+  xmin = -180, 
+  xmax = -20,
+  ymin = 0,
+  ymax = 80
+)
+
+coast_cropped <- st_crop(coastlines, domain)
+countries_cropped <-  st_read("~/Dropbox/BGP/genoscape_maps/shapefiles/ne_shapefiles/ne_10m_admin_0_boundary_lines_land.shp") %>%
+  st_crop(domain)
+states_cropped <- st_read("~/Dropbox/BGP/genoscape_maps/shapefiles/ne_shapefiles/ne_10m_admin_1_states_provinces_lines.shp") %>%
+  st_crop(domain)
+
+hypso <- brick("~/Dropbox/BGP/genoscape_maps/shapefiles/ne_rasters/HYP_HR_SR_OB_DR/HYP_HR_SR_OB_DR.tif")
+hypso_cropped <- crop(hypso, extent(domain)) 
+
+map <- ggplot() +
+  geom_sf(data = coast_cropped) +
+  geom_sf(data = countries_cropped, fill = NA) +
+  geom_sf(data = states_cropped, fill = NA) +
+  #geom_point(data = test, aes(meanLong, meanLat,color=meanD1), size = 2) + #scale_colour_manual(values=my.colors) +
+  theme_bw()+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+```
+
+Add projection and read in the American Kestrel shapefile
+```{r}
+lamproj <- "+proj=lcc +lat_1=20 +lat_2=60 +lat_0=40 +lon_0=-100 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs"
+breedE<-read_sf("~/Dropbox/BGP/genoscape_maps/shapefiles/AMKE2/amkeb.shp")
+```
+
+Import data of AMKE genoscape. First colors:
+```{r}
+cluster_colors <-  c(
+  grp1 = "#377eb8", #East
+  grp2 = "#ffff33", #west
+  grp3 = "#984ea3", #FL
+  grp4 = "#00ffff", #AK
+  grp5 = "#ff7f00") #TX
+```
+Then genoscape raster
+```{r}
+genoscape_brick<-readRDS("~/Dropbox/BGP/AMKE/maps/AMKE.structureQ.K5breeding.551ind.186SNP.final.entire.stack.rds")
+```
+This will squash the raster brick down to a single
+RGBA (i.e., four channels, red, green, blue and alpha) raster brick.
+
+```{r}
+genoscape_rgba <- genoscapeRtools::qprob_rando_raster(
+  TRB = genoscape_brick,
+  cols = cluster_colors, 
+  alpha_scale = 2.0, 
+  abs_thresh = 0.0, 
+  alpha_exp = 1.8, 
+  alpha_chop_max = 230,
+  scale_min_to = 0
+)
+
+# at this point, we must be explicit about adding a projection to the raster.
+# This adds the info for a regular lat-long projection
+crs(genoscape_rgba) <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+class(genoscape_rgba)
+
+ggplot() + 
+  layer_spatial(genoscape_rgba) + 
+  theme_bw() +
+  coord_sf()
+```
+
+```{r}
+library(ggrepel)
+bbdata_mean<-bbdata %>% group_by(Pop,State) %>% summarise(meanLat=mean(Lat),meanLong=mean(Long))
+mgdata1<- subset(alldata3, phaseFAC == "Migrating") %>% group_by(Pop,State) %>% summarise(meanLat=mean(Lat),meanLong=mean(Long))
+rad<-read_delim("~/Dropbox/BGP/AMKE/metadata_files/AMKE.297RAD.meta.Near_Town.txt",delim="\t") %>% group_by(`Study site`) %>% summarise(meanLat=mean(Latitude),meanLong=mean(Longitude)) %>% filter(`Study site` != "CA2") %>% filter(`Study site` != "ID2")
+
+#pdf("AMKE.genoscapeNS.pretty.meanD1.west_pop4.breedcolors5b.pdf")
+mid<-mean(test$meanD1)
+ggplot() +
+  ggspatial::layer_spatial(hypso_cropped) +
+  geom_sf(data = countries_cropped, fill = NA, size = 0.15) +
+  geom_sf(data = states_cropped, fill = NA, size = 0.1) + 
+  layer_spatial(genoscape_rgba) +
+  #geom_spatial_point(data = bbdata_mean, mapping = aes(x = meanLong, y = meanLat), size=2,shape=19) +
+  geom_spatial_text_repel(data = boise, mapping = aes(x = Long, y = Lat, label="Boise, ID"), size=2,point.padding = .2) +
+  geom_spatial_point(data = test, mapping = aes(x = meanLong, y = meanLat,color=meanD1), size=4) + 
+  scale_color_gradient2(midpoint=mid, low="yellow", mid="white",high="orange", space ="Lab" ) +
+  xlab("Longitude") + ylab("Latitude") + labs(color='PC1') +
+  coord_sf(
+    crs = st_crs(lamproj), 
+    xlim = c(-3068118, 3371262), 
+    ylim = c(-2099797, 4464362),
+    expand = FALSE) 
+#dev.off()
+
+```
+Top1 allele frequency and latitude, for breeding populations wtih 4 or more individuals
+```{r}
+#pdf("plots/AMKE.genoscapeNS.pretty.top1_AF.west_pop4.breedcolors5b.pdf")
+mid<-mean(test$top1_AF)
+ggplot() +
+  ggspatial::layer_spatial(hypso_cropped) +
+  geom_sf(data = countries_cropped, fill = NA, size = 0.15) +
+  geom_sf(data = states_cropped, fill = NA, size = 0.1) + 
+  layer_spatial(genoscape_rgba) +
+  geom_spatial_text_repel(data = boise, mapping = aes(x = Long, y = Lat, label="Boise, ID"), size=2,point.padding = .2) +
+  geom_spatial_point(data = test, mapping = aes(x = meanLong, y = meanLat,color=top1_AF), size=4) + 
+  scale_color_gradient2(midpoint=mid, low="yellow", mid="white",high="orange", space ="Lab" ) +
+  xlab("Longitude") + ylab("Latitude") + labs(color='TOP1_AF') +
+  coord_sf(
+    crs = st_crs(lamproj), 
+    xlim = c(-3368118, 3371262), 
+    ylim = c(-2099797, 4464362),
+    expand = FALSE) 
+#dev.off()
+```
+Linear regression of each candidate gene allele frequency and lattitude of breeding populations
+```{r}
+m = lm(top1_AF~meanLat,data=test)
+summary(m)
+m = lm(peak1_AF~meanLat,data=test)
+summary(m)
+m = lm(cpne4_AF~meanLat,data=test)
+summary(m)
+m = lm(phlpp1_AF~meanLat,data=test)
+summary(m)
+```
+
+```{r}
+#pdf("plots/Top1_allele_freq.meanLatitude.West_pop4.pdf",useDingbats=F,width=12,height=8)
+t<-ggplot(test, aes(meanLat, top1_AF)) + 
+  geom_point(aes(size=top1_tally,colour="red")) + 
+  geom_errorbar(aes(ymin=top1_AF-peak1_AFse, ymax=top1_AF+top1_AFse), colour="black", width=.1) +
+  #geom_smooth(method = "lm",linetype = "dashed",se=T) + 
+  #geom_text(aes(meanLat,top1_AF),hjust=0, vjust=0) + 
+  theme(axis.text.x=element_text(angle=90,hjust=1))+ theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  xlab("mean Latitude")+ylab("TOP1 Allele Frequency")+theme(aspect.ratio = 1)
+t
+
+#dev.off()
+mod1<-lm(top1_AF~meanLat, data=test)
+summary(mod1)
+```
+
+```{r}
+#pdf("plots/Peak1_allele_freq.meanLatitude.West_pop4.pdf",useDingbats=F,width=12,height=8)
+p<-ggplot(test, aes(meanLat, peak1_AF)) + 
+  geom_point(aes(size=peak1_tally,colour="red"),alpha=0.8) + 
+  geom_errorbar(aes(ymin=peak1_AF-peak1_AFse, ymax=peak1_AF+peak1_AFse), colour="black", width=.1) +
+  #geom_smooth(method = "lm",linetype = "dashed",se=T) + 
+  #geom_text(aes(meanLat,top1_AF),hjust=0, vjust=0) + 
+  theme(axis.text.x=element_text(angle=90,hjust=1))+ theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  xlab("mean Latitude")+ylab("PEAK1 Allele Frequency")+theme(aspect.ratio = 1) +ylim(0,1)
+p
+#dev.off()
+
+mod1<-lm(peak1_AF~meanLat, data=test)
+summary(mod1)
+```
+
+```{r}
+#pdf("CPNE4_allele_freq.meanLatitude.West.pdf",useDingbats=F,width=12,height=8)
+c<-ggplot(test, aes(meanLat, (1-cpne4_AF))) + 
+  geom_point(aes(size=cpne4_tally,colour="red"),alpha=0.8) + 
+  geom_errorbar(aes(ymin=(1-cpne4_AF)+cpne4_AFse, ymax=(1-cpne4_AF)-cpne4_AFse), colour="black", width=.1) +
+  #geom_smooth(method = "lm",linetype = "dashed",se=T) + 
+  #geom_text(aes(meanLat,top1_AF),hjust=0, vjust=0) + 
+  theme(axis.text.x=element_text(angle=90,hjust=1))+ theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  xlab("mean Latitude")+ylab("CPNE4 Allele Frequency")+theme(aspect.ratio = 1)+ylim(0,1)
+c
+mod1c<-lm(cpne4_AF~meanLat, data=test)
+summary(mod1c)
+#dev.off()
+
+```
+
+```{r}
+#pdf("PHLPP1_allele_freq.meanLatitude.West.pdf",useDingbats=F,width=12,height=8)
+ph<-ggplot(test, aes(meanLat, phlpp1_AF)) + 
+  geom_point(aes(size=phlpp1_tally,colour="red"),alpha=0.8) + 
+  geom_errorbar(aes(ymin=phlpp1_AF-phlpp1_AFse, ymax=phlpp1_AF+phlpp1_AFse), colour="black", width=.1) +
+  #geom_smooth(method = "lm",linetype = "dashed",se=T) + 
+  #geom_text(aes(meanLat,phlpp1_AF,label=phlpp1_tally),hjust=0, vjust=0) + 
+  theme(axis.text.x=element_text(angle=90,hjust=1))+ theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  xlab("mean Latitude")+ylab("PHLPP1 Allele Frequency")+theme(aspect.ratio = 1)+ylim(0,1)
+ph
+
+#dev.off()
+mod1p<-lm( phlpp1_AF~meanLat, data=test)
+summary(mod1p)
+```
+
+All 3 genes together (TOP1 in figure with PC1):
+```{r}
+pdf("plots/AMKE.3genes_by_meanLat.se.pop4b.pdf",useDingbats = F)
+ggarrange(p,c,ph, common.legend = TRUE,
+          ncol = 2, nrow = 2)
+dev.off()
+
+ggarrange(p,c,ph, common.legend = TRUE,
+          ncol = 2, nrow = 2)
+```
+
+
+#Subset Migration season data
+
+```{r}
+mgdata1<- subset(alldata3, phaseFAC == "Migrating")
+# there are some spring migrants mixed in these have been recategorized as SPmigration
+mgdata2<- subset(mgdata1, julianDaySampled > 223)
+# poor sample sizes in the east and central flyways so just look at west for now
+mgdata3<- subset(mgdata2, flyway2 == "west") %>% filter(SampleNo !="16N2176")
+mgdata3 %>% group_by(State) %>% tally()
+# couple of birds caught in Nov and Dec at GGRO ask them about samples
+mgdata2<- subset(mgdata3, julianDaySampled < 300 ) %>% filter(State=="ID")
+dim(mgdata2)
+str(mgdata2)
+mgdata2 %>% group_by(State) %>% tally()
+```
+
+```{r}
+coord<- mgdata2 %>% group_by(stateProv) %>% summarise(meanLat=mean(latitude),meanLong=mean(longitude))
+coord
+```
+
+Do we see different genotypes groups (covarying candidate genes) passing through on different days during autumn migration? Yes for PC1 (akak D1), does not depend on latitude as we showed before. Test for each PC.
+
+```{r}
+
+mod1<-lm(D1 ~ julianDaySampled, 
+         data=mgdata2) 
+summary(mod1)
+
+mod2<-lm(D2 ~ julianDaySampled, 
+         data=mgdata2) 
+summary(mod2)
+
+mod3<-lm(D3 ~ julianDaySampled, 
+         data=mgdata2) 
+summary(mod3)
+
+mod4<-lm(D4 ~ julianDaySampled, 
+         data=mgdata2) 
+summary(mod4)
+
+```
+
+There is a year effect, but year not completely sampled in 2016, so try removing.
+```{r}
+mod1<-lm(D1 ~ julianDaySampled +Year, 
+         data=mgdata2) 
+summary(mod1)
+
+mgdata3<-mgdata2 %>% filter(yearSampled!=2016)
+
+mod1a<-lm(D1 ~ julianDaySampled + sexBird, 
+         data=mgdata3) 
+summary(mod1a)
+
+```
+
+Plot timing of migration for 2016 and 2017, separated by sex
+```{r}
+pdf('plots/Amke.D1_JulianDaySampled.ID_only.raw012fix.bysex.2017.1npas2.pdf',useDingbats = F)
+sexP<-ggplot(data = mgdata3, mapping = aes(x = julianDaySampled, y = D1,color=sexBird)) +  scale_color_manual(values = my.colors)+
+  geom_point() + 
+  geom_smooth(method = "lm") +theme_bw() +theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + xlab("Julian Day Sampled") + ylab("D1") + labs(color = "Sex") +theme(aspect.ratio = 1)
+sexP
+dev.off()
+
+mgdata2 %>% group_by(yearSampled) %>% tally()
+##mgdata %>% dplyr::select("SampleNo") %>% write.table("AMKE.ID_migrBirds165_only.txt",row.names = F,quote=F,sep="\t")
+
+my.colors<-c("#333333","#984ea3", "#ff7f00","#33FF00", "#ffff33","#377eb8","#e41a1c", "#00ffff")
+
+pdf('plots/FigSI3.D1_byLat_bySex.pdf')
+ggarrange(d_lat,sexP,
+          ncol = 1, nrow = 2)
+dev.off()
+
+```
+
+Plot D1 vs Migration timing looking at year
+```{r}
+d1_migrT<-mgdata2 %>% 
+  #filter(yearSampled!=2016) %>% 
+  ggplot(aes(x = julianDaySampled, y = D1,color=as.factor(Year)),size=2,alpha=.9) +  scale_color_manual(values = my.colors)+
+  geom_point() + 
+  geom_smooth(method = "lm") +theme_bw() +theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + xlab("Julian Day Sampled") + ylab("D1") + labs(color = "Year")
+ggarrange(d1_migrT,
+          ncol = 2, nrow = 2)
+```
+##There is a year effect (1.26e-06), but this could be due to sampling because they weren't sampled earlier in the migration time
+```{r}
+mod1<-lm(D1 ~ julianDaySampled +Year,
+         #+ Year:julianDaySampled, 
+         data=mgdata2) 
+summary(mod1)
+```
+
+Plot D1 vs migration timing (Julian Day Sampled)
+```{r}
+#pdf('plots/Amke.D1_JulianDaySampled.ID_only.raw012fix.1npas2.pdf',useDingbats = F,width=12,height=8)
+d1_migrT<-mgdata2 %>% 
+  #filter(yearSampled!=2016) %>% 
+  ggplot(aes(x = julianDaySampled, y = D1),size=2,alpha=.9) +  scale_color_manual(values = my.colors)+
+  geom_point() + 
+  geom_smooth(method = "lm") +theme_bw() +theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + xlab("Julian Day Sampled") + ylab("D1") + labs(color = "Year")
+ggarrange(d1_migrT,
+          ncol = 2, nrow = 2)
+#dev.off()
+```
+Plot PC2 and migration timing
+```{r}
+#pdf('plots/Amke.D2_JulianDaySampled.ID_only.raw012fix.1npas2.pdf',useDingbats = F,width=12,height=8)
+d2_migrT<-mgdata2 %>% 
+  #filter(yearSampled!=2016) %>% 
+  ggplot(aes(x = julianDaySampled, y = D2),size=4,alpha=.9) +  scale_color_manual(values = my.colors)+
+  geom_point() + 
+  geom_smooth(method = "lm") +theme_bw() +theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + xlab("Day of Year") + ylab("Component 2") + labs(color = "Year") + theme(aspect.ratio = 1)
+ggarrange(d2_migrT,
+          ncol = 2, nrow = 2)
+#dev.off()
+mod2<-lm(D2 ~ julianDaySampled,
+         data=mgdata2)
+summary(mod2)
+
+```
+
+Plot D4 and migratory timing
+```{r}
+#pdf('Amke.D4_JulianDaySampled.ID_only.raw012fix.1npas2.pdf',useDingbats = F,width=12,height=8)
+d4_migrT<-mgdata2 %>% 
+  #filter(yearSampled!=2016) %>% 
+  ggplot(aes(x = julianDaySampled, y = D4),size=2,alpha=.9) +  scale_color_manual(values = my.colors)+
+  geom_point() + 
+  geom_smooth(method = "lm") +theme_bw() +theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + xlab("Julian Day Sampled") + ylab("D4") + labs(color = "Year")
+ggarrange(d4_migrT,
+          ncol = 2, nrow = 2)
+#dev.off()
+```
+
+#Test genotype with julian day sampled
+```{r}
+mod2<-lm(CG12_peak1 ~ latitude + julianDaySampled, 
+         #+ latitude:julianDaySampled, 
+         data=mgdata2)
+summary(mod2)
+
+mod3<-lm(CG10_top1 ~ latitude + julianDaySampled, 
+         #+ latitude:julianDaySampled, 
+         data=mgdata2)
+summary(mod3)
+
+mod4<-lm(CG11_phlpp1 ~ latitude + julianDaySampled, 
+         #+ latitude:julianDaySampled, 
+         data=mgdata2)
+summary(mod4)
+
+mod5<-lm(CG4_cpne4 ~ latitude + julianDaySampled, 
+         #+ latitude:julianDaySampled, 
+         data=mgdata2)
+summary(mod5)
+```
+
+Create a new migration metric by splitting up by week (Julian days and midpoint). Sum across top1 and peak1 genotypes, divide by number of birds in week and then by 2
+```{r}
+mgdata2a<-mgdata2 %>% mutate(week =cut(julianDaySampled, breaks=c(226,233,240,247,254,261,268,275,282,289,300))) %>% mutate(midpoint=if_else(week=="(282,289]",285,if_else(week=="(240,247]",243,if_else(week=="(226,233]",229,if_else(week=="(233,240]",236,if_else(week=="(247,254]",250,if_else(week=="(254,261]",257,if_else(week=="(261,268]",264,if_else(week=="(268,275]",271,if_else(week=="(275,282]",278,291))))))))))
+#mgdata2<-mgdata %>% mutate(week =cut(julianDaySampled, breaks=c(226,229,233,236,240,243,247,250,254,257,261,264,268,271,275,278,282,285,289,300)))
+
+#merge Oct27 bird with previous week
+mgdata2a<-mgdata2 %>% mutate(week =cut(julianDaySampled, breaks=c(226,233,240,247,254,261,268,275,282,299))) %>% mutate(midpoint=if_else(week=="(282,289]",285,if_else(week=="(240,247]",243,if_else(week=="(226,233]",229,if_else(week=="(233,240]",236,if_else(week=="(247,254]",250,if_else(week=="(254,261]",257,if_else(week=="(261,268]",264,if_else(week=="(268,275]",271,if_else(week=="(275,282]",278,290))))))))))
+
+#mgdata2<-mgdata %>% mutate(week =cut(julianDaySampled, breaks=c(226,229,233,236,240,243,247,250,254,257,261,264,268,271,275,278,282,300)))
+
+dim(mgdata2a)
+mgdata2a$week.f <- factor(mgdata2a$week)
+summary(mgdata2$julianDaySampled)
+mgdata2a$week.f <- factor(mgdata2a$week)
+summary(mgdata2a$julianDaySampled)
+sum<-mgdata2a %>% filter(julianDaySampled!="NA") %>% group_by(week.f) %>% summarise(top1_sum = sum(amke_CG10_top1_A,na.rm=T), peak1_sum=sum(amke_CG12_peak1_T,na.rm=T),npas2_sum=sum(amke_CG8_npas2_T,na.rm=T),scn5a_sum=sum(amke_CG5_scn5a_C,na.rm=T),phlpp1_sum=sum(amke_CG11_phlpp1_C,na.rm=T),cpne4_sum=sum(amke_CG4_cpne4_C,na.rm = T)) 
+dim(sum)
+
+tally_top<-mgdata2a %>% filter(julianDaySampled!="NA") %>% filter(amke_CG10_top1_A !="NA") %>%  group_by(week.f) %>%  tally() %>% rename(top1_tally=n)
+
+tally_peak<-mgdata2a %>% filter(julianDaySampled!="NA") %>% filter(amke_CG12_peak1_T !="NA") %>%  group_by(week.f) %>%  tally() %>% rename(peak1_tally=n)
+
+tally_phlpp1<-mgdata2a %>% filter(julianDaySampled!="NA") %>% filter(amke_CG11_phlpp1_C !="NA") %>%  group_by(week.f) %>%  tally() %>% rename(phlpp1_tally=n)
+
+tally_cpne4<-mgdata2a %>% filter(julianDaySampled!="NA") %>% filter(amke_CG4_cpne4_C !="NA") %>%  group_by(week.f) %>%  tally() %>% rename(cpne4_tally=n)
+
+#calculate allele freq, but you lose ability to create error bars
+top1_peak1<-mgdata2a %>% dplyr::select(SampleNo,Genetic_Group2,State,Pop,amke_CG10_top1_A, amke_CG12_peak1_T,amke_CG4_cpne4_C ,amke_CG11_phlpp1_C,week.f,midpoint) %>% 
+  filter(Genetic_Group2=="west") %>% 
+  group_by(week.f) %>% mutate(top1_allele_freq = amke_CG10_top1_A/2, peak1_allele_freq=amke_CG12_peak1_T/2,cpne4_allele_freq=amke_CG4_cpne4_C/2, phlpp1_allele_freq=amke_CG11_phlpp1_C/2) %>% summarise(peak1_AF=mean(peak1_allele_freq,na.rm=T),peak1_AFsd=sd(peak1_allele_freq,na.rm=T),top1_AF=mean(top1_allele_freq,na.rm=T),top1_AFsd=sd(top1_allele_freq,na.rm=T),cpne4_AF=mean(cpne4_allele_freq,na.rm=T),cpne4_AFsd=sd(cpne4_allele_freq,na.rm=T),phlpp1_AF=mean(phlpp1_allele_freq,na.rm=T),phlpp1_AFsd=sd(phlpp1_allele_freq,na.rm=T),midpt=mean(midpoint)) %>% left_join(tally_top) %>% left_join(tally_peak) %>% left_join(tally_cpne4) %>% left_join(tally_phlpp1) %>% mutate(top1_AFse=top1_AFsd/sqrt(top1_tally), peak1_AFse=peak1_AFsd/sqrt(peak1_tally),cpne4_AFse=cpne4_AFsd/sqrt(cpne4_tally),phlpp1_AFse=phlpp1_AFsd/sqrt(phlpp1_tally))
+
+```
+test whether frequencies change in a non-linear way
+```{r}
+library(lm.br) ##number of seperate 'x' values below minimum for changepoint inference
+library(segmented)
+test2<-mgdata2a %>% dplyr::select(SampleNo,Genetic_Group2,State,Pop,amke_CG10_top1_A, amke_CG12_peak1_T,amke_CG4_cpne4_C ,amke_CG11_phlpp1_C,week.f,midpoint) %>%  
+  #filter(week.f!="(289,300]") %>% 
+  filter(Genetic_Group2=="west") %>% 
+  group_by(week.f) %>% mutate(top1_allele_freq = amke_CG10_top1_A/2, peak1_allele_freq=amke_CG12_peak1_T/2,cpne4_allele_freq=amke_CG4_cpne4_C/2, phlpp1_allele_freq=amke_CG11_phlpp1_C/2)
+tmod<-lm(top1_allele_freq ~ midpoint, data = test2)
+summary(tmod)
+test2 %>% dplyr::select(week.f,top1_allele_freq) %>% add_tally()
+summary(tmod)
+confint(tmod)
+anova(tmod)
+influence(tmod)
+dd <- lm.br( test2$top1_allele_freq ~ test2$midpoint, inv= T, var.known= T )
+#null hypothesis is false
+
+pscore.test(tmod, seg.Z=~midpoint, k = 10, alternative = c("less"), values=NULL, dispersion=NULL, df.t=NULL, more.break=FALSE, n.break=1)
+```
+Plot allele frequency by week
+```{r}
+library(lmtest)
+citation(package="lmtest")
+top1_peak1b <-top1_peak1  %>%  
+  #filter(week.f!="(289,300]") %>% #filter(week.f!="(282,289]") %>% 
+  drop_na(week.f)
+summary(lm(top1_allele_freq ~ week.f, data = test2))
+fit1<-lm(top1_allele_freq ~ midpoint, data = test2)
+summary(fit1)
+fit2 <- lm(top1_allele_freq~poly(midpoint,2,raw=TRUE),data=test2)
+summary(fit2)
+anova(fit1,fit2)
+lrtest(fit1, fit2)
+
+pdf("plots/Top1_allele_freq.byweek.migrating_birds.raw012fix.square.polylm.1.pdf",useDingbats=F)
+t2<-ggplot(top1_peak1b, aes(midpt, top1_AF)) + 
+  geom_point(aes(size=top1_tally,colour="red"),alpha=0.8) + 
+  geom_errorbar(aes(ymin=top1_AF-top1_AFse, ymax=top1_AF+top1_AFse), colour="black", width=.1) +
+  #geom_smooth(method = "lm",linetype = "dashed",se=T)  +
+  geom_smooth(method = "lm", formula = y~poly(x,2)) +
+  theme(axis.text.x=element_text(angle=90,hjust=1))+ 
+  theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + coord_cartesian(ylim = c(0,1))+
+  xlab("Week")+ylab("TOP1 Allele Frequency")+theme(aspect.ratio = 1)
+t2
+dev.off()
+```
+
+##Test allele frequency differences across the week, using midpoint
+
+Test shape of relations using lm and polynomial with peak1
+```{r}
+fit1<-lm(peak1_allele_freq ~ midpoint, data = test2)
+summary(fit1)
+fit2 <- lm(peak1_allele_freq~poly(midpoint,2,raw=TRUE),data=test2)
+summary(fit2)
+anova(fit1,fit2)
+lrtest(fit1, fit2)
+
+#pdf("plots/Peak1_allele_freq.byweek.migrating_birds.IDonly.raw012fix.square.1.pdf",useDingbats=F)
+#top1_peak1 %>% summarise(sumtally=sum(peak1_tally))
+p2<-ggplot(top1_peak1b, aes(midpt, peak1_AF)) + 
+  geom_point(aes(size=peak1_tally,colour="red"),alpha=0.8) + 
+  geom_errorbar(aes(ymin=peak1_AF-peak1_AFse, ymax=peak1_AF+peak1_AFse), colour="black", width=.1) +
+  #geom_smooth(method = "lm",linetype = "dashed",se=T) + 
+  geom_smooth(method = "lm", formula = y~poly(x,2)) +
+  #geom_text(aes(week.f,peak1_AF,label=peak1_tally),hjust=0, vjust=0) + 
+  theme(axis.text.x=element_text(angle=90,hjust=1))+ 
+  theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + coord_cartesian(ylim = c(0,1))+
+  xlab("Week")+ylab("PEAK1 Allele Frequency")+theme(aspect.ratio = 1)
+p2
+#dev.off()
+
+```
+Test lm and polynomial with cpne4
+```{r}
+fit1<-lm(cpne4_allele_freq ~ midpoint, data = test2)
+summary(fit1)
+fit2 <- lm(cpne4_allele_freq~poly(midpoint,2,raw=TRUE),data=test2)
+summary(fit2)
+anova(fit1,fit2)
+lrtest(fit1, fit2)
+
+#pdf("Cpne4_allele_freq.byweek.migrating_birds.IDonly.raw012fix.square.1.pdf",useDingbats=F)
+#top1_peak1 %>% summarise(sumtally=sum(peak1_tally))
+c2<-ggplot(top1_peak1b, aes(midpt, (1-cpne4_AF))) + 
+  geom_point(aes(size=cpne4_tally,colour="red"),alpha=0.8) + 
+  geom_errorbar(aes(ymin=(1-cpne4_AF)-cpne4_AFse, ymax=(1-cpne4_AF)+cpne4_AFse), colour="black", width=.1) +
+  #geom_smooth(method = "lm",linetype = "dashed",se=T) + 
+  geom_smooth(method = "lm", formula = y~poly(x,2)) +
+  theme(axis.text.x=element_text(angle=90,hjust=1))+ 
+  theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + coord_cartesian(ylim = c(0,1))+
+  xlab("Week")+ylab("CPNE4 Allele Frequency")+theme(aspect.ratio = 1)
+c2
+#dev.off()
+```
+Test lm and polynomial with phlpp1
+```{r}
+fit1<-lm(phlpp1_allele_freq ~ midpoint, data = test2)
+summary(fit1)
+fit2 <- lm(phlpp1_allele_freq~poly(midpoint,2,raw=TRUE),data=test2)
+summary(fit2)
+fit3 <- lm(phlpp1_allele_freq~poly(midpoint,3,raw=TRUE),data=test2)
+summary(fit3)
+
+anova(fit1,fit2,fit3)
+lrtest(fit1, fit2,fit3)
+
+#pdf("Phlpp1_allele_freq.byweek.migrating_birds.IDonly.raw012fix.square.1.pdf",useDingbats=F)
+#top1_peak1 %>% summarise(sumtally=sum(peak1_tally))
+ph2<-ggplot(top1_peak1b, aes(midpt, phlpp1_AF)) + 
+  geom_point(aes(size=phlpp1_tally,colour="red"),alpha=0.8) + 
+  geom_errorbar(aes(ymin=phlpp1_AF-phlpp1_AFse, ymax=phlpp1_AF+phlpp1_AFse), colour="black", width=.1) +
+  #geom_smooth(method = "lm",linetype = "dashed",se=T) + 
+  #geom_text(aes(week.f,peak1_AF,label=peak1_tally),hjust=0, vjust=0) + 
+  theme(axis.text.x=element_text(angle=90,hjust=1))+ 
+  theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + coord_cartesian(ylim = c(0,1))+
+  xlab("Week")+ylab("PHLPP1 Allele Frequency")+theme(aspect.ratio = 1)
+ph2
+#dev.off()
+```
+
+Plot all allele frequency plots in a panel of 4
+```{r}
+pdf("plots/AlleleFreq_4genes.PC1.byweek.midpt_lm.migrating_birds.IDonly.raw012fix.square.poly_model.1.pdf")
+ggarrange(t2,p2,c2,ph2, common.legend = TRUE,
+          ncol = 2, nrow = 2)
+dev.off()
+ggarrange(t2,p2,c2,ph2, common.legend = TRUE,
+          ncol = 2, nrow = 2)
+```
+
+
+##Combine popID and candidate genes for ID migratory birds
+```{r}
+setwd("~/Dropbox/BGP/AMKE/Fluidigm_genotypes_results/Genotype_results/Sara/Christen_ReScore/")
+
+##Plate11
+setwd("~/Dropbox/BGP/AMKE/Fluidigm_genotypes_results/Genotype_results/")
+pt11_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl11.panel4.allsites.CBscored.csv") %>% 
+  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
+  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
+  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control")  %>% spread(Assay_Name, Genotype_Converted) %>% filter(Sample_Name %in% mgdata$SampleNo)
+
+pt12_p4g <- read_csv("Sara/Christen_ReScore/AMKE.Plate12_B1_FinalPanel4.CBscored.allsites.csv") %>% 
+  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
+  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
+  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% filter(Sample_Name!="18N00358")  %>% spread(Assay_Name, Genotype_Converted) %>% filter(Sample_Name %in% mgdata$SampleNo) #%>% arrange(Sample_Name) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
+
+pt13_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl13.panel4.CBscored.allsites.csv") %>% 
+  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
+  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
+  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Negative") %>% filter(Sample_Name != "Control") %>% arrange(Sample_Name) %>% spread(Assay_Name, Genotype_Converted) %>%  filter(Sample_Name %in% mgdata$SampleNo) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
+
+##Plate 14
+pt14_p4g <- read_csv("Sara/Christen_ReScore/AMKE.Ppl14.panel4.CBscored.allsites.csv") %>% 
+  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
+  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
+  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% filter(Sample_Name!="18N00596") %>% spread(Assay_Name, Genotype_Converted) %>% filter(Sample_Name %in% mgdata$SampleNo)  #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
+
+pt14_p4g_one <- read_csv("Sara/Christen_ReScore/AMKE.Ppl14.panel4.CBscored.allsites.csv") %>% 
+  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
+  select(Assay_Name, Sample_Name, Genotype_Converted,ID) %>% 
+  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% filter(Sample_Name=="18N00596") %>% spread(Assay_Name, Genotype_Converted) %>% filter(Sample_Name %in% mgdata$SampleNo) #%>% write.table('AMKE.Plate14.dup_ind.long.csv',quote=F,sep=",",row.names=F) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
+
+pt14_p4g_dup<-read_csv("Sara/Christen_ReScore/AMKE.Plate14.dup_ind.long.18N00596.csv") %>% select(Assay_Name, Sample_Name, Genotype_Converted) %>% spread(Assay_Name, Genotype_Converted)  %>% filter(Sample_Name %in% mgdata$SampleNo) 
+
+
+##Plate 15
+pt15_p4g <- read_csv("Sara/Christen_ReScore/AMKE.Pl15_M1_FinalPanel4.CBscored.allsites.csv") %>% 
+  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
+  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
+  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% spread(Assay_Name, Genotype_Converted)  %>%  filter(Sample_Name %in% mgdata$SampleNo) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
+
+##Plate 16
+pt16_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl16.finalpanel4.CBscored.allsites.csv") %>% 
+  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
+  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
+  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% filter(Sample_Name!="16N2260") %>% filter(Sample_Name!="16N2259") %>% filter(Sample_Name!="18N00043") %>% filter(Sample_Name!="18N00562") %>% spread(Assay_Name, Genotype_Converted) %>%  filter(Sample_Name %in% mgdata$SampleNo) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
+
+##Plate 17
+pt17_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl17.panel4.allsites.csv") %>% 
+  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
+  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
+  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% spread(Assay_Name, Genotype_Converted) %>%  filter(Sample_Name %in% mgdata$SampleNo) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
+
+##Plate 18
+pt18_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl18.panel4.allsites.CBscored.csv") %>% 
+  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
+  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
+  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% spread(Assay_Name, Genotype_Converted)  %>%  filter(Sample_Name %in% mgdata$SampleNo) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
+
+##Plate 19
+pt19_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl19.panel4.allsites.CBscored.csv") %>% 
+  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
+  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
+  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% filter(Sample_Name!="17N02694") %>% spread(Assay_Name, Genotype_Converted)   %>%  filter(Sample_Name %in% mgdata$SampleNo) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
+
+##Plate 20
+pt20_p4g <- read_csv("Sara/Christen_ReScore/AMKE.pl20.panel4.allsites.CBscored.csv") %>% 
+  rename(Assay_Name=Assay,Sample_Name=Name,Genotype_Converted=Converted) %>% 
+  select(Assay_Name, Sample_Name, Genotype_Converted) %>% 
+  filter(Sample_Name != "NTC") %>% filter(Sample_Name != "Control") %>% filter(Sample_Name != "Negative") %>% filter(Sample_Name!="18N00629") %>% filter(Sample_Name!="18N00455") %>% spread(Assay_Name, Genotype_Converted)   %>%  filter(Sample_Name %in% mgdata$SampleNo) #%>% filter(Sample_Name %in% pt12_13_p5g$Sample_Name)
+
+all<-rbind(pt11_p4g,pt12_p4g,pt13_p4g,pt14_p4g,pt14_p4g_dup, pt15_p4g,pt16_p4g,pt17_p4g,pt18_p4g, pt19_p4g,pt20_p4g) %>% arrange(Sample_Name) %>% rename(Sample=Sample_Name) %>% filter(Sample %in% mgdata$SampleNo)
+
+p5_51<-read_csv("ID_popID_finalPanel5/AMKE.Plate51.FinalPanel5.CBscored.1802138101.callmap.csv") %>% dplyr::select(-rownum)
+p5_53<-read_csv("ID_popID_finalPanel5/AMKE.Plate53.FinalPanel5.CBscored.1802138112.callmap.csv") %>% dplyr::select(-rownum)
+
+ID_p5<-p5_51 %>% full_join(p5_53) 
+
+ID_p4_5<-ID_p5 %>% left_join(all) #%>% mutate(sample_type="mixture",repunit="NA",collection="NA") %>% dplyr::select(sample_type,repunit,collection,Sample,everything()) %>% 
+
+ID_p4_5 %>% full_join(early) %>% arrange(Sample) %>% write.table("ID_popID_finalPanel5/AMKE.IDall.final_panel4-5.csv",row.names = F,quote=F,sep=",")
+
+all<-read_csv("Sara/Christen_ReScore/AMKE.Pl11-20.Panel4only_removesome_checkdup.csv")
+
+early<-read_delim("AMKE_SNPgenotypes_str_format_allSamps_842ind.plt6-8redos.csv",delim=",",col_names = T) %>% rename(Sample=Sample_Name) %>% filter(Sample %in% mgdata$SampleNo)
+
+early %>% write.table("AMKE_SNPgenotypes_str_format_allSamps_ID40.plt6-8redos.csv",row.names = F,quote=F,sep=",")
+
+early<-read_delim("AMKE_SNPgenotypes_str_format_allSamps_ID40.plt6-8redos.csv",delim=",",col_names = T) 
+
+all %>% full_join(early) %>% arrange(Sample) %>% write.table("ID_popID_finalPanel5/AMKE.IDall.FinalPanel4_5.SNPgenotypes.csv",row.names=F,quote=F,sep=",")
+mgdata2<-mgdata %>% rename(indiv=SampleNo) %>% dplyr::select(indiv,Year,Month,Day,State,nearestCity,countryCode,latitude,longitude)
+amke_rub<-read_delim("ID_popID_finalPanel5/AMKE.IDrm_miss.rep_indiv_est.txt",delim="\t")
+amke_rub %>% left_join(mgdata2) %>% write.table("ID_popID_finalPanel5/AMKE.IDrm_miss.rep_indiv_est.meta.txt",row.names = F,quote=F,sep="\t")
+#add e to the data so can combine
+
+amke_rub<-read_delim("data/AMKE.IDrm_miss.rep_indiv_est.meta.txt",delim="\t")
+amke_rub %>% filter(West>0.5) %>% tally()
+
+amke_rub %>% filter(East>0.5) %>% tally()
+amke_rub %>% filter(East>0.8) %>% tally()
+amke_rub %>% filter(East>0.5) %>% select(Month,Day)
+all %>% filter(Sample_Name %in% mgdata$SampleNo)
+
 
